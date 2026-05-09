@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>NET HUNT</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono&family=Orbitron&display=swap" rel="stylesheet">
+
+<meta http-equiv="refresh" content="5">
+
+<style>
+:root {
+    --bg-primary:#0a0e27;
+    --bg-card:#141b2d;
+    --accent-cyan:#00ffff;
+    --accent-magenta:#ff00ff;
+    --accent-green:#00ff88;
+    --accent-red:#ff3366;
+    --accent-yellow:#ffcc00;
+    --text-primary:#e0e7ff;
+}
+
+body {
+    background:var(--bg-primary);
+    color:var(--text-primary);
+    font-family:'JetBrains Mono';
+    padding:20px;
+}
+
+h1 {
+    font-family:'Orbitron';
+    text-align:center;
+    color:#00ffff;
+}
+
+@keyframes fadeInUp {
+    from {opacity:0; transform:translateY(20px);}
+    to {opacity:1; transform:translateY(0);}
+}
+
+.section, .metric-card, tr {
+    animation:fadeInUp 0.5s ease;
+}
+
+.metrics-grid {
+    display:flex;
+    gap:20px;
+    margin:20px 0;
+}
+
+.metric-card {
+    background:var(--bg-card);
+    padding:20px;
+    border-radius:10px;
+    flex:1;
+    transition:0.3s;
+}
+
+.metric-card:hover {
+    box-shadow:0 0 10px #00ffff;
+}
+
+.section {
+    background:var(--bg-card);
+    padding:15px;
+    border-radius:10px;
+    margin-top:20px;
+}
+
+table {
+    width:100%;
+    border-collapse:collapse;
+}
+
+th, td {
+    padding:10px;
+    border-bottom:1px solid #1e293b;
+}
+
+.HIGH { color:red; }
+.MEDIUM { color:orange; }
+.LOW { color:lightgreen; }
+
+canvas {
+    filter: drop-shadow(0 0 8px #00ffff);
+}
+</style>
+</head>
+
+<body>
+
+<h1>⬡ NET HUNT ⬡</h1>
+
+<!-- METRICS -->
+<div class="metrics-grid">
+    <div class="metric-card">
+        Total Attacks<br>
+        <h2>{{ logs|length }}</h2>
+    </div>
+
+    <div class="metric-card">
+        High Alerts<br>
+        <h2>{{ logs | selectattr('severity','equalto','HIGH') | list | length }}</h2>
+    </div>
+
+    <div class="metric-card">
+        Unique IPs<br>
+        <h2>{{ logs | map(attribute='ip') | unique | list | length }}</h2>
+    </div>
+
+    <div class="metric-card">
+        Services Hit<br>
+        <h2>{{ logs | map(attribute='service') | unique | list | length }}</h2>
+    </div>
+</div>
+
+<!-- LIVE FEED -->
+<div class="section">
+<h3>LIVE ATTACK FEED</h3>
+{% for log in logs[-10:] %}
+<div>
+{{ log.ip }} → {{ log.service }} → {{ log.status }}
+<span class="{{ log.severity }}">{{ log.severity }}</span>
+</div>
+{% endfor %}
+</div>
+
+<!-- SEVERITY BY IP -->
+<div class="section">
+<h3>⚠️ SEVERITY BY IP</h3>
+
+<table>
+<thead>
+<tr>
+<th>IP</th>
+<th>HIGH</th>
+<th>MEDIUM</th>
+<th>LOW</th>
+</tr>
+</thead>
+
+<tbody>
+{% set ip_severity = {} %}
+{% for log in logs %}
+    {% set ip = log.ip %}
+    {% if ip not in ip_severity %}
+        {% set _ = ip_severity.update({ip: {'HIGH':0,'MEDIUM':0,'LOW':0}}) %}
+    {% endif %}
+    {% set _ = ip_severity[ip].update({log.severity: ip_severity[ip][log.severity] + 1}) %}
+{% endfor %}
+
+{% for ip, sev in ip_severity.items() %}
+<tr>
+<td>{{ ip }}</td>
+<td style="color:red;">{{ sev['HIGH'] }}</td>
+<td style="color:orange;">{{ sev['MEDIUM'] }}</td>
+<td style="color:lightgreen;">{{ sev['LOW'] }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<!-- LOG TABLE -->
+<div class="section">
+<h3>COMPLETE ATTACK LOG</h3>
+
+<table>
+<thead>
+<tr>
+<th>TIME</th>
+<th>IP</th>
+<th>SERVICE</th>
+<th>STATUS</th>
+<th>SEVERITY</th>
+<th>COUNTRY</th>
+<th>LAT</th>
+<th>LON</th>
+</tr>
+</thead>
+
+<tbody>
+{% for log in logs %}
+<tr>
+<td>{{ loop.index }}</td>
+<td>{{ log.ip }}</td>
+<td>{{ log.service }}</td>
+<td>{{ log.status }}</td>
+
+<td class="{{ log.severity }}">{{ log.severity }}</td>
+
+<td>🌍 {{ log.country }}</td>
+<td>{{ "%.2f"|format(log.lat) }}</td>
+<td>{{ "%.2f"|format(log.lon) }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<!-- CHARTS -->
+<div class="section">
+<h3>Top Attacking IPs</h3>
+<div style="width:400px;margin:auto;">
+<canvas id="ipChart"></canvas>
+</div>
+
+<h3>Services Targeted</h3>
+<div style="width:300px;margin:auto;">
+<canvas id="serviceChart"></canvas>
+</div>
+</div>
+
+<script>
+let ipData = {{ ip_counts | tojson }};
+let serviceData = {{ service_counts | tojson }};
+
+// Top 5 IPs
+let topIPs = Object.entries(ipData)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,5);
+
+// IP Chart
+new Chart(document.getElementById("ipChart"), {
+    type:'bar',
+    data:{
+        labels:topIPs.map(i=>i[0]),
+        datasets:[{
+            data:topIPs.map(i=>i[1]),
+            backgroundColor:'#00ffff'
+        }]
+    }
+});
+
+// Service Chart
+new Chart(document.getElementById("serviceChart"), {
+    type:'doughnut',
+    data:{
+        labels:Object.keys(serviceData),
+        datasets:[{
+            data:Object.values(serviceData),
+            backgroundColor:['#00ffff','#ff00ff','#00ff88','#ffcc00']
+        }]
+    },
+    options:{
+        animation:{
+            animateScale:true,
+            animateRotate:true,
+          duration:1000
+        }
+    }
+});
+</script>
+         
+
+
